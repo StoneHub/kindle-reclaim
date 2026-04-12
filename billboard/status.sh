@@ -23,3 +23,9 @@ echo "url=${BILLBOARD_URL:-}"
 echo "interval=${INTERVAL_SECONDS:-}"
 echo "suspend=${USE_SUSPEND:-}"
 echo "log=${LOG_FILE:-}"
+if [ -f "${LAST_RESULT_FILE:-}" ]; then
+  echo "last_result=$(cat "$LAST_RESULT_FILE" 2>/dev/null || true)"
+fi
+if [ -f "${LAST_SUCCESS_FILE:-}" ]; then
+  echo "last_success=$(cat "$LAST_SUCCESS_FILE" 2>/dev/null || true)"
+fi

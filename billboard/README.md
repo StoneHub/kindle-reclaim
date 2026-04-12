@@ -5,6 +5,8 @@ Minimal Kindle-side client for a jailbroken Kindle that:
 - fetches a raster image from a URL
 - renders it full-screen with `fbink` or `eips`
 - optionally loops with suspend/wake between refreshes
+- skips refreshes when the fetched image has not changed
+- bounds fetch time and retries so Wi-Fi hiccups do not hang the loop
 
 ## Verified
 
@@ -29,6 +31,16 @@ Live proof completed:
 - `render-once.sh`: render current URL once without starting the loop
 - `status.sh`: print local runtime state
 - `config.env.example`: default on-device config template
+
+## Runtime Behavior
+
+The hardened default behavior is:
+
+- fetch timeout: `30s`
+- fetch retries: `2`
+- render only on change: enabled
+
+This reduces unnecessary e-ink refreshes and keeps the poller from hanging on a bad HTTP request.
 
 ## Usage
 
@@ -80,13 +92,15 @@ Menu actions:
 Host-side deploy helper:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\deploy-kindle-billboard.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\deploy-kindle-billboard.ps1 -StartPoller
 ```
 
 This copies:
 
 - `billboard/*` -> `/mnt/us/billboard`
 - `kual/kindle-billboard/*` -> `/mnt/us/extensions/kindle-billboard`
+
+It also rewrites `/mnt/us/billboard/config.env` to the active host URL and can start the poller immediately over USB networking.
 
 ## Important limits
 

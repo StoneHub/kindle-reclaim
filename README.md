@@ -42,6 +42,7 @@ Verified behavior:
 - host-side publish pipeline for agent-driven updates
 
 More detailed device notes live in [skills/kindle-billboard/references/current-setup.md](skills/kindle-billboard/references/current-setup.md).
+Session handoff notes for the next agent live in [skills/kindle-billboard/references/next-agent-handoff.md](skills/kindle-billboard/references/next-agent-handoff.md).
 
 ## Repo Layout
 
@@ -95,7 +96,7 @@ python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py publish-new
 Deploy to the Kindle:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\deploy-kindle-billboard.ps1
+powershell -ExecutionPolicy Bypass -File .\tools\deploy-kindle-billboard.ps1 -StartPoller
 ```
 
 On the Kindle, use KUAL:
@@ -112,6 +113,13 @@ Or run directly:
 /mnt/us/billboard/status.sh
 /mnt/us/billboard/stop-poller.sh
 ```
+
+Current deploy helper behavior:
+
+- detects the active LAN IP if `-BillboardUrl` is not supplied
+- rewrites `/mnt/us/billboard/config.env`
+- can start the poller immediately with `-StartPoller`
+- keeps render-only-on-change enabled by default to avoid needless refreshes
 
 ## Current Design Choices
 
