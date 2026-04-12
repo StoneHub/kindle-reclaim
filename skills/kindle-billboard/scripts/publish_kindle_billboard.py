@@ -97,10 +97,26 @@ def open_local_or_remote(source: str) -> tuple[Image.Image, dict[str, Any]]:
 
 
 def default_font(size: int) -> ImageFont.ImageFont:
+    for font_name in ("DejaVuSans.ttf", "Arial.ttf", "arial.ttf"):
+        try:
+            return ImageFont.truetype(font_name, size=size)
+        except OSError:
+            continue
     try:
         return ImageFont.load_default(size=size)
     except TypeError:
         return ImageFont.load_default()
+
+
+def normalized_source_name(source_name: str, source_url: str) -> str:
+    if source_name.strip():
+        return source_name.strip()
+    if not source_url.strip():
+        return ""
+    hostname = urlparse(source_url).netloc.lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    return hostname
 
 
 def draw_wrapped(
@@ -147,6 +163,65 @@ def render_text_card(title: str, body: str, footer: str) -> Image.Image:
         footer_y = HEIGHT - 40 - footer_height
         draw.line((20, footer_y - 18, WIDTH - 20, footer_y - 18), fill=0, width=2)
         draw_wrapped(draw, footer, x=40, y=footer_y, width=WIDTH - 80, font=footer_font, line_gap=6)
+
+    return img
+
+
+def render_news_meme_card(
+    *,
+    headline: str,
+    joke: str,
+    summary: str,
+    source_name: str,
+    image: Image.Image | None,
+    footer: str,
+) -> Image.Image:
+    img = Image.new("L", (WIDTH, HEIGHT), 255)
+    draw = ImageDraw.Draw(img)
+    label_font = default_font(18)
+    title_font = default_font(28)
+    body_font = default_font(22)
+    meta_font = default_font(16)
+
+    draw.rectangle((20, 20, WIDTH - 21, HEIGHT - 21), outline=0, width=3)
+
+    header = "Daily News Meme"
+    if source_name:
+        header = f"{header} | {source_name}"
+    draw.text((40, 38), header, fill=0, font=label_font)
+    header_bbox = draw.textbbox((40, 38), header, font=label_font)
+    divider_y = header_bbox[3] + 12
+    draw.line((40, divider_y, WIDTH - 40, divider_y), fill=0, width=2)
+
+    y = divider_y + 18
+    if image is not None:
+        image_top = y
+        image_bottom = y + 320
+        draw.rectangle((40, image_top, WIDTH - 40, image_bottom), outline=0, width=2)
+        fitted = ImageOps.contain(image.convert("L"), (WIDTH - 84, 304))
+        paste_x = (WIDTH - fitted.width) // 2
+        paste_y = image_top + ((image_bottom - image_top) - fitted.height) // 2
+        img.paste(fitted, (paste_x, paste_y))
+        y = image_bottom + 18
+
+    y = draw_wrapped(draw, headline, x=40, y=y, width=WIDTH - 80, font=title_font, line_gap=8)
+
+    if joke.strip():
+        y += 6
+        y = draw_wrapped(draw, joke, x=40, y=y, width=WIDTH - 80, font=body_font, line_gap=8)
+
+    if summary.strip():
+        y += 8
+        y = draw_wrapped(draw, summary, x=40, y=y, width=WIDTH - 80, font=meta_font, line_gap=6)
+
+    footer_lines = [line.strip() for line in (source_name, footer) if line.strip()]
+    if footer_lines:
+        footer_text = "\n".join(footer_lines)
+        footer_bbox = draw.multiline_textbbox((0, 0), footer_text, font=meta_font, spacing=4)
+        footer_height = footer_bbox[3] - footer_bbox[1]
+        footer_y = max(y + 16, HEIGHT - 42 - footer_height)
+        draw.line((40, footer_y - 14, WIDTH - 40, footer_y - 14), fill=0, width=2)
+        draw.multiline_text((40, footer_y), footer_text, fill=0, font=meta_font, spacing=4)
 
     return img
 
@@ -204,6 +279,40 @@ def cmd_publish_text(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_publish_news_meme(args: argparse.Namespace) -> int:
+    publish_dir = Path(args.publish_dir).resolve()
+    image = None
+    image_meta: dict[str, Any] = {}
+    if args.image:
+        image, image_meta = open_local_or_remote(args.image)
+
+    source_name = normalized_source_name(args.source_name, args.source_url)
+    img = render_news_meme_card(
+        headline=args.headline,
+        joke=args.joke,
+        summary=args.summary,
+        source_name=source_name,
+        image=image,
+        footer=args.footer,
+    )
+    metadata = {
+        "kind": "news_meme",
+        "published_at": utc_now(),
+        "source_type": "generated",
+        "headline": args.headline,
+        "joke": args.joke,
+        "summary": args.summary,
+        "source_name": source_name,
+        "source_url": args.source_url,
+        "footer": args.footer,
+    }
+    if image_meta:
+        metadata["image"] = image_meta
+    current = save_current(img, publish_dir, metadata)
+    print(current)
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     publish_dir = Path(args.publish_dir).resolve()
     ensure_publish_dir(publish_dir)
@@ -250,6 +359,43 @@ def build_parser() -> argparse.ArgumentParser:
     publish_text.add_argument("--body", required=True, help="Main content.")
     publish_text.add_argument("--footer", default="", help="Optional footer line(s).")
     publish_text.set_defaults(func=cmd_publish_text)
+
+    publish_news_meme = subparsers.add_parser(
+        "publish-news-meme",
+        help="Render a Kindle-optimized news meme card, with or without a supplied image.",
+    )
+    publish_news_meme.add_argument("--headline", required=True, help="The news headline to show.")
+    publish_news_meme.add_argument(
+        "--joke",
+        default="",
+        help="Short funny line or caption. Keep it concise for e-ink readability.",
+    )
+    publish_news_meme.add_argument(
+        "--summary",
+        default="",
+        help="Optional one- or two-line context summary under the joke.",
+    )
+    publish_news_meme.add_argument(
+        "--source-name",
+        default="",
+        help="Display name for the source, such as Reuters or AP News.",
+    )
+    publish_news_meme.add_argument(
+        "--source-url",
+        default="",
+        help="Original article URL stored in metadata.",
+    )
+    publish_news_meme.add_argument(
+        "--image",
+        default="",
+        help="Optional local path or http(s) URL for a generated meme image.",
+    )
+    publish_news_meme.add_argument(
+        "--footer",
+        default="",
+        help="Optional footer, such as the agent name or schedule timestamp.",
+    )
+    publish_news_meme.set_defaults(func=cmd_publish_news_meme)
 
     serve = subparsers.add_parser("serve", help="Serve the publish directory over HTTP.")
     serve.add_argument("--host", default="0.0.0.0", help="Bind address.")

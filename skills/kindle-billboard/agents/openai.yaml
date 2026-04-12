@@ -1,4 +1,4 @@
 interface:
   display_name: "Kindle Billboard"
-  short_description: "Publish images/text to the Kindle billboard"
-  default_prompt: "Use $kindle-billboard to publish or update the current Kindle billboard image."
+  short_description: "Publish images, joke cards, and news memes to the Kindle billboard"
+  default_prompt: "Use $kindle-billboard to publish or update the current Kindle billboard image. For current-news humor, prepare a Tavily-backed daily news brief first."

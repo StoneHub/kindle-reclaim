@@ -10,11 +10,12 @@ Use this skill to update the Kindle billboard without re-learning the device qui
 ## Workflow
 
 1. Read [references/current-setup.md](references/current-setup.md) when delivery guarantees or device constraints matter.
-2. Decide the transport:
+2. For current-news meme runs, prepare a Tavily-backed plan first with [scripts/plan_daily_news_meme.py](scripts/plan_daily_news_meme.py).
+3. Decide the transport:
    - For normal untethered updates: publish a new `current.png` on the host.
    - For immediate direct rendering: only claim this path if USB or Wi-Fi SSH is actually available.
-3. Publish content with [scripts/publish_kindle_billboard.py](scripts/publish_kindle_billboard.py).
-4. Report the exact artifact path and whether delivery is guaranteed or only staged.
+4. Publish content with [scripts/publish_kindle_billboard.py](scripts/publish_kindle_billboard.py).
+5. Report the exact artifact path and whether delivery is guaranteed or only staged.
 
 ## Commands
 
@@ -34,6 +35,20 @@ Publish a simple generated card:
 
 ```bash
 python scripts/publish_kindle_billboard.py publish-text --title "Barn Notes" --body "Fence crew on south pasture at 18:00." --footer "Updated by agent"
+```
+
+Prepare a daily current-news meme brief with Tavily:
+
+```bash
+python scripts/plan_daily_news_meme.py
+```
+
+This expects `TAVILY_API_KEY` in the environment.
+
+Publish a current-news meme card after an agent creates the joke and image:
+
+```bash
+python scripts/publish_kindle_billboard.py publish-news-meme --headline "..." --joke "..." --summary "..." --source-name "Reuters" --source-url "https://..." --image /absolute/path/to/news-meme.png --footer "OpenClaw daily cron"
 ```
 
 Serve the published directory over local HTTP:
@@ -57,10 +72,13 @@ python scripts/publish_kindle_billboard.py serve
 
 - Use `publish-text` for quick notices, instructions, schedules, and low-effort dashboards.
 - Use `publish-file` for charts, screenshots, memes, generated art, and already-rendered pages.
+- Use `plan_daily_news_meme.py` when the user wants current-events humor, memes, or a cron-driven daily billboard sourced from fresh news.
+- Use `publish-news-meme` when an external agent has already selected the story and created the joke or image.
 - If the user asks for a web dashboard or PDF view, prefer server-side render to PNG rather than browser-kiosk behavior on the Kindle.
 - If the user asks whether updates work while unplugged: yes only when the Kindle is charged, on Wi-Fi, and already running `/mnt/us/billboard/poll-url.sh`.
 
 ## References
 
 - [references/current-setup.md](references/current-setup.md): verified facts for this Kindle
+- [references/daily-news-meme-workflow.md](references/daily-news-meme-workflow.md): Tavily-backed cron design for current-news memes
 - [references/openclaw-hermes-prompt.md](references/openclaw-hermes-prompt.md): short copy/paste prompt for external agents

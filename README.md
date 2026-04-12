@@ -23,6 +23,7 @@ The host can publish:
 - local images
 - image URLs
 - generated text cards
+- Tavily-backed current-news meme plans for an external agent
 
 PDFs are expected to be rasterized on the host first.
 
@@ -75,6 +76,20 @@ Check status:
 python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py status
 ```
 
+Prepare a daily current-news meme brief:
+
+```powershell
+python .\skills\kindle-billboard\scripts\plan_daily_news_meme.py
+```
+
+The planner expects `TAVILY_API_KEY` in the host environment.
+
+Publish a news meme card after your agent has made the image and caption:
+
+```powershell
+python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py publish-news-meme --headline "..." --joke "..." --summary "..." --source-name "Reuters" --source-url "https://..." --image C:\path\to\news-meme.png --footer "OpenClaw daily cron"
+```
+
 ## Kindle Workflow
 
 Deploy to the Kindle:
@@ -104,6 +119,31 @@ Or run directly:
 - Prefer Wi-Fi pull over browser kiosk behavior
 - Use grayscale `600x800` raster images as the device contract
 - Use plain HTTP on trusted LAN by default because old Kindle TLS is weak
+- For current-news humor, use Tavily to select the story, then have an external agent create an original meme image or joke card
+
+## Daily News Meme Workflow
+
+Recommended flow for OpenClaw or another cron-driven agent:
+
+1. `plan_daily_news_meme.py` calls Tavily Search with `topic=news`, `time_range=day`, `search_depth=basic`, and a small trusted domain allowlist.
+2. Your agent reads the generated JSON plan, writes one short joke, and creates one original high-contrast image for `600x800` grayscale.
+3. The agent publishes the result with `publish-news-meme`.
+4. The Kindle poller fetches the updated `current.png` over Wi-Fi.
+
+The detailed rationale and source links live in [skills/kindle-billboard/references/daily-news-meme-workflow.md](skills/kindle-billboard/references/daily-news-meme-workflow.md).
+
+Practical cron shape on your ARM host:
+
+1. cron runs `plan_daily_news_meme.py`
+2. OpenClaw picks up the resulting JSON
+3. OpenClaw generates `news-meme.png`
+4. OpenClaw runs `publish-news-meme`
+
+Safest content path:
+
+- generate original satirical art or a text-first joke card
+- avoid depending on scraped social-media memes or article-page screenshots
+- keep on-image text sparse so it survives Kindle grayscale conversion
 
 ## Done
 
@@ -113,6 +153,7 @@ The project is considered working when:
 2. the Kindle fetches `GET /current.png` over Wi-Fi
 3. the new image appears on-screen
 4. the poll loop can be started and stopped safely
+5. a daily-news plan can be generated from Tavily and handed to an external agent without manual lookup
 
 ## Not In This Repo
 
