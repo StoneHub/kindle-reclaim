@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kindle Billboard"
+  short_description: "Publish images/text to the Kindle billboard"
+  default_prompt: "Use $kindle-billboard to publish or update the current Kindle billboard image."

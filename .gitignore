@@ -1,0 +1,18 @@
+# Generated/runtime
+artifacts/
+*.log
+
+# Local Kindle payload dumps and binaries
+payloads/
+
+# Vendored upstream references
+vendor/
+
+# Local config/state
+billboard/config.env
+__pycache__/
+*.pyc
+
+# Workspace-only files
+AGENTS.md
+tools/tavily_research_async.py

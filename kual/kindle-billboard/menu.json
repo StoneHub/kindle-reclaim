@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "name": "Kindle Billboard",
+      "priority": -997,
+      "items": [
+        {
+          "name": "Start Poller",
+          "priority": 1,
+          "action": "./bin/start.sh",
+          "exitmenu": true,
+          "refresh": false,
+          "status": false,
+          "internal": "status Starting Kindle billboard poller"
+        },
+        {
+          "name": "Render Current Once",
+          "priority": 2,
+          "action": "./bin/render-once.sh",
+          "exitmenu": true,
+          "refresh": false,
+          "status": false,
+          "internal": "status Rendering current billboard image"
+        },
+        {
+          "name": "Restart Poller",
+          "priority": 3,
+          "action": "./bin/restart.sh",
+          "exitmenu": true,
+          "refresh": false,
+          "status": false,
+          "internal": "status Restarting Kindle billboard poller"
+        },
+        {
+          "name": "Stop Poller",
+          "priority": 4,
+          "action": "./bin/stop.sh",
+          "exitmenu": true,
+          "refresh": false,
+          "status": false,
+          "internal": "status Stopping Kindle billboard poller"
+        }
+      ]
+    }
+  ]
+}
