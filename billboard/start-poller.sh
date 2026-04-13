@@ -16,9 +16,22 @@ is_pid_running() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+is_poller_pid() {
+  pid="${1:-}"
+  [ -n "$pid" ] || return 1
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  cmdline="$(tr '\000' ' ' </proc/"$pid"/cmdline 2>/dev/null || true)"
+  case "$cmdline" in
+    *"/billboard/poll-url.sh"*|*"poll-url.sh"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 if [ -f "$PID_FILE" ]; then
   existing_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if is_pid_running "$existing_pid"; then
+  if is_poller_pid "$existing_pid"; then
     echo "already running: $existing_pid"
     exit 0
   fi
@@ -32,7 +45,7 @@ if [ -f "$LOG_FILE" ]; then
   fi
 fi
 
-nohup env CONFIG_FILE="$CONFIG_FILE" "$SCRIPT_DIR/poll-url.sh" >>"$LOG_FILE" 2>&1 &
+nohup env CONFIG_FILE="$CONFIG_FILE" /bin/sh "$SCRIPT_DIR/poll-url.sh" >>"$LOG_FILE" 2>&1 &
 sleep 1
 
 new_pid="$(cat "$PID_FILE" 2>/dev/null || true)"

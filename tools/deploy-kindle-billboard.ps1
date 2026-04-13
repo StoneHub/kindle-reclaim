@@ -5,11 +5,13 @@ param(
     [string]$HostUsbIp = "192.168.15.201",
     [string]$Workspace = "C:\Users\monro\Codex\Kindle reclaim",
     [string]$BillboardUrl = "",
-    [int]$IntervalSeconds = 300,
-    [int]$UseSuspend = 1,
+    [int]$IntervalSeconds = 60,
+    [int]$UseSuspend = 0,
     [int]$FetchTimeoutSeconds = 30,
     [int]$FetchRetries = 2,
     [int]$RenderOnChange = 1,
+    [string]$SshPassword = "",
+    [string]$SshKeyPath = "",
     [switch]$StartPoller
 )
 
@@ -37,10 +39,44 @@ function Get-LanIPv4 {
     throw "Unable to detect a LAN IPv4 address. Pass -BillboardUrl explicitly."
 }
 
+function Convert-ToWslPath {
+    param([string]$Path)
+
+    $resolved = (Resolve-Path -LiteralPath $Path).Path
+    $drive = $resolved.Substring(0, 1).ToLowerInvariant()
+    $rest = $resolved.Substring(2).Replace("\", "/")
+    return "/mnt/$drive$rest"
+}
+
+function Get-DefaultSshKeyPath {
+    $defaultKey = Join-Path $env:USERPROFILE ".ssh\id_ed25519"
+    if (Test-Path -LiteralPath $defaultKey) {
+        return (Resolve-Path -LiteralPath $defaultKey).Path
+    }
+
+    return ""
+}
+
 if (-not $BillboardUrl) {
     $LanIp = Get-LanIPv4
     $BillboardUrl = "http://${LanIp}:8765/current.png"
 }
+
+$envPassword = [Environment]::GetEnvironmentVariable("KINDLE_SSH_PASSWORD")
+if (-not $SshKeyPath) {
+    $SshKeyPath = Get-DefaultSshKeyPath
+}
+
+if (-not $SshPassword -and $envPassword) {
+    $SshPassword = $envPassword
+}
+
+$sshAuthMode = if ($SshKeyPath) { "key" } else { "password" }
+if ($sshAuthMode -eq "password" -and -not $SshPassword) {
+    $SshPassword = "x"
+}
+
+$sshKeyWsl = if ($SshKeyPath) { Convert-ToWslPath -Path $SshKeyPath } else { "" }
 
 $usbipd = "C:\Program Files\usbipd-win\usbipd.exe"
 & $usbipd attach --wsl $Distro --busid $BusId | Out-Null
@@ -56,14 +92,42 @@ if [ -z "\$IFACE" ]; then
 fi
 ip link set "\$IFACE" up
 ip addr replace $HostUsbIp/24 dev "\$IFACE"
-export SSHPASS=x
 cd "$workspaceWsl"
-sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no root@${KindleIp} "mkdir -p /mnt/us/billboard /mnt/us/extensions/kindle-billboard/bin"
-sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no billboard/* root@${KindleIp}:/mnt/us/billboard/
-sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no kual/kindle-billboard/config.xml root@${KindleIp}:/mnt/us/extensions/kindle-billboard/
-sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no kual/kindle-billboard/menu.json root@${KindleIp}:/mnt/us/extensions/kindle-billboard/
-sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no kual/kindle-billboard/bin/* root@${KindleIp}:/mnt/us/extensions/kindle-billboard/bin/
-sshpass -e ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=password -o PubkeyAuthentication=no root@${KindleIp} '
+AUTH_MODE="__AUTH_MODE__"
+SSH_KEY_PATH="__SSH_KEY_PATH__"
+SSH_PASSWORD="__SSH_PASSWORD__"
+SSH_OPTS_BASE="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5"
+
+ssh_run() {
+  target="$1"
+  shift
+
+  if [ "$AUTH_MODE" = "key" ]; then
+    ssh $SSH_OPTS_BASE -o PreferredAuthentications=publickey,password -o IdentitiesOnly=yes -i "$SSH_KEY_PATH" "root@$target" "$@"
+    return
+  fi
+
+  SSHPASS="$SSH_PASSWORD" sshpass -e ssh $SSH_OPTS_BASE -o PreferredAuthentications=password -o PubkeyAuthentication=no "root@$target" "$@"
+}
+
+scp_run() {
+  source_path="$1"
+  target_path="$2"
+
+  if [ "$AUTH_MODE" = "key" ]; then
+    scp $SSH_OPTS_BASE -o IdentitiesOnly=yes -i "$SSH_KEY_PATH" $source_path "root@$target_path"
+    return
+  fi
+
+  SSHPASS="$SSH_PASSWORD" sshpass -e scp $SSH_OPTS_BASE -o PreferredAuthentications=password -o PubkeyAuthentication=no $source_path "root@$target_path"
+}
+
+ssh_run ${KindleIp} "mkdir -p /mnt/us/billboard /mnt/us/extensions/kindle-billboard/bin"
+scp_run billboard/* "${KindleIp}:/mnt/us/billboard/"
+scp_run kual/kindle-billboard/config.xml "${KindleIp}:/mnt/us/extensions/kindle-billboard/"
+scp_run kual/kindle-billboard/menu.json "${KindleIp}:/mnt/us/extensions/kindle-billboard/"
+scp_run kual/kindle-billboard/bin/* "${KindleIp}:/mnt/us/extensions/kindle-billboard/bin/"
+ssh_run ${KindleIp} '
 set -e
 chmod +x /mnt/us/billboard/*.sh /mnt/us/extensions/kindle-billboard/bin/*.sh
 mkdir -p /mnt/us/billboard/state /mnt/us/billboard/logs
@@ -90,5 +154,9 @@ fi
 /mnt/us/billboard/status.sh
 '
 "@
+
+$script = $script.Replace("__AUTH_MODE__", $sshAuthMode)
+$script = $script.Replace("__SSH_KEY_PATH__", $sshKeyWsl)
+$script = $script.Replace("__SSH_PASSWORD__", $SshPassword)
 
 wsl.exe -d $Distro -u root -e bash -lc $script

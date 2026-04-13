@@ -8,11 +8,26 @@ EXAMPLE_CONFIG="$SCRIPT_DIR/config.env.example"
 [ -f "$CONFIG_FILE" ] || cp "$EXAMPLE_CONFIG" "$CONFIG_FILE"
 . "$CONFIG_FILE"
 
+is_poller_pid() {
+  pid="${1:-}"
+  [ -n "$pid" ] || return 1
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  cmdline="$(tr '\000' ' ' </proc/"$pid"/cmdline 2>/dev/null || true)"
+  case "$cmdline" in
+    *"/billboard/poll-url.sh"*|*"poll-url.sh"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 pid=""
 [ -f "$PID_FILE" ] && pid="$(cat "$PID_FILE" 2>/dev/null || true)"
 
-if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+if is_poller_pid "$pid"; then
   state="running"
+elif [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+  state="stale-pid"
 else
   state="stopped"
 fi

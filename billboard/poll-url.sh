@@ -24,6 +24,19 @@ is_pid_running() {
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+is_poller_pid() {
+  pid="${1:-}"
+  [ -n "$pid" ] || return 1
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  cmdline="$(tr '\000' ' ' </proc/"$pid"/cmdline 2>/dev/null || true)"
+  case "$cmdline" in
+    *"/billboard/poll-url.sh"*|*"poll-url.sh"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     return 0
@@ -31,7 +44,7 @@ acquire_lock() {
 
   old_pid=""
   [ -f "$PID_FILE" ] && old_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if is_pid_running "$old_pid"; then
+  if is_poller_pid "$old_pid"; then
     log "poller already running as pid $old_pid"
     exit 0
   fi
@@ -96,7 +109,7 @@ while true; do
     exit 0
   fi
 
-  if ! BILLBOARD_URL="$URL" "$SCRIPT_DIR/show-url.sh"; then
+  if ! BILLBOARD_URL="$URL" /bin/sh "$SCRIPT_DIR/show-url.sh"; then
     log "fetch/render failed for $URL"
   fi
 

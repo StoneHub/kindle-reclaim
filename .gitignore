@@ -14,5 +14,4 @@ __pycache__/
 *.pyc
 
 # Workspace-only files
-AGENTS.md
 tools/tavily_research_async.py

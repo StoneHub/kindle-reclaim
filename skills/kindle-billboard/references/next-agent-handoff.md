@@ -11,9 +11,9 @@ The user wants:
 - AI agents on the ARM host to publish images, charts, notices, and daily news memes
 - no recurring dependence on KUAL or USB after the one-time setup is stable
 
-The user explicitly does **not** want the work framed around USB networking as the long-term solution. USB networking is only the one-time maintenance path for shell access.
+The user explicitly does **not** want the work framed around USB networking as the runtime model. USB maintenance is acceptable; recurring tethering is not.
 
-## Verified so far
+## Current state
 
 Verified on `2026-04-12`:
 
@@ -24,136 +24,94 @@ Verified on `2026-04-12`:
 - Host HTTP server listening on `0.0.0.0:8765`
 - Billboard URL in use: `http://192.168.50.131:8765/current.png`
 - Kindle Wi-Fi IP observed from host: `192.168.50.162`
-- Direct Wi-Fi fetch + render worked earlier with a test image
-- After a hard reboot, the Kindle returned to the normal home screen and KUAL remained usable
-- After `Restart Poller` from KUAL, the host again saw successful `GET /current.png` requests from `192.168.50.162`
+- `Render Current Once` from KUAL rendered `Poller Afterparty Check`
+- `Start Poller` from KUAL resumed Wi-Fi polling and advanced the screen to `Wi-Fi Victory Lap`
+- Wi-Fi SSH on `192.168.50.162:22` is reachable from native Windows OpenSSH with key auth
+- Root password is now `kindle`, and password auth was verified from Windows OpenSSH via `SSH_ASKPASS`
+- `tools/push-current-kindle.ps1` now uses native Windows `ssh.exe` and `scp.exe` for Wi-Fi host push
+- A real weather/news image was published at `21:13:07` local time on `2026-04-12`
+- The host logged fresh `GET /current.png` at `21:11:58`, `21:12:58`, and `21:13:58` after the late-session host server restart
+- `tools/install-kindle-autostart.ps1` installed a reboot-tested Kindle upstart hook
+- The verified upstart trigger is `started framework`; `framework_ready` did not fire reliably for this custom job
+- After a real reboot, `autostart.log` recorded `2026-04-12 20:30:43 autostart invoked` followed by `started: 5226`
+- The host logged `GET /current.png` again at `21:31:54` after that reboot-driven autostart
+- The Windows host now has `tools/kindle-host-serve.ps1` plus a Startup entry at `C:\Users\monro\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\kindle-host-serve.cmd`
+- Mounted usbnet storage showed `/mnt/us/usbnet/auto` was already enabled
 
-Relevant host log evidence:
+Relevant host log evidence in `artifacts/wifi-http.err.log`:
 
-- `artifacts/wifi-http.err.log`
-- successful `GET /current.png` at:
-  - `2026-04-12 17:33:56`
-  - `2026-04-12 17:34:19`
-  - `2026-04-12 17:35:10`
-  - `2026-04-12 17:35:12`
-  - `2026-04-12 17:38:12`
-  - `2026-04-12 17:38:48`
+- `2026-04-12 18:12:28` `GET /current.png`
+- `2026-04-12 18:14:29` `GET /current.png`
+- `2026-04-12 21:11:58` `GET /current.png`
+- `2026-04-12 21:12:58` `GET /current.png`
+- `2026-04-12 21:13:58` `GET /current.png`
 
-## What failed
+## Root causes that were fixed
 
-The system is **not** yet proven reliable end to end.
+1. The Kindle was not running the same `billboard/*.sh` and `kual/kindle-billboard/*` files as the repo.
+2. `Start Poller` could be blocked by stale `/mnt/us/billboard/state/poller.pid` and `poller.lock`.
+3. KUAL launcher actions were too dependent on relative paths and direct execution on `/mnt/us`.
+4. `/mnt/us/billboard/config.env` had Windows CRLF line endings, which caused shell errors such as:
 
-Observed failure:
-
-1. A new host-side card was published at `2026-04-12 17:39:40`.
-2. Host artifacts changed correctly:
-   - `artifacts/publish/current.png`
-   - `artifacts/publish/current.json`
-3. The Kindle was expected to fetch the new image on the next poll.
-4. The user reported the screen still showed the older `17:32` card instead of the newer `17:39` card.
-
-Implication:
-
-- HTTP fetches are happening
-- repaint/render behavior after the restarted poller is not yet trustworthy
+```text
+/mnt/us/billboard/render-once.sh: /mnt/us/billboard/config.env: line 2:
+: not found
+```
 
 ## Important repo state
 
 The current repo state that matters is in:
 
-- `billboard/config.env.example`
-- `billboard/show-url.sh`
-- `billboard/status.sh`
-- `billboard/README.md`
-- `tools/deploy-kindle-billboard.ps1`
 - `README.md`
+- `billboard/README.md`
+- `billboard/*.sh`
+- `billboard/config.env.example`
+- `kual/kindle-billboard/*`
+- `skills/kindle-billboard/SKILL.md`
 - `skills/kindle-billboard/references/current-setup.md`
+- `tools/install-kindle-ssh-key.ps1`
+- `tools/set-kindle-root-password.ps1`
+- `tools/push-current-kindle.ps1`
 - this handoff file
 
-These changes harden the runtime:
+## Known-good maintenance rules
 
-- fetch timeout bounds
-- retry count
-- skip re-render when the image is unchanged
-- richer status output
-- deploy helper writes `config.env` and can start the poller
+- If the Kindle is mounted as USB mass storage on Windows, compare the deployed `billboard/` and `extensions/kindle-billboard/` files against the repo before assuming Wi-Fi is broken.
+- If the Kindle is still mounted as USB storage, treat host publishes as staged only; eject before expecting new `GET /current.png` traffic.
+- Preserve LF line endings for `/mnt/us/billboard/config.env` and all `*.sh` files.
+- Do not generate Kindle-side shell or sourced env files with Windows text writers such as PowerShell `Set-Content`.
+- `Render Current Once` is the shortest on-device smoke test.
+- `kual-actions.log` and `poller.log` are the first runtime logs to inspect when KUAL appears to do nothing.
+- The KUAL footer status text is not authoritative evidence that a poller action completed.
+- Before closing a visual fix, publish a real image or meme, not just a text card.
+- If `Render Current Once` logs a run but the screen does not change, verify that manual render bypasses `RENDER_ON_CHANGE`; otherwise it can return `unchanged` and look dead.
+- If Wi-Fi SSH is listening but the password is unknown, mounted USB storage can still repair host push by writing the host public key to `/mnt/us/usbnet/etc/authorized_keys`.
+- The repo SSH helpers now prefer `~/.ssh/id_ed25519` and fall back to `KINDLE_SSH_PASSWORD` or an explicit `-SshPassword`.
+- On this Windows host, prefer native `ssh.exe` and `scp.exe` for Wi-Fi Kindle work; WSL may fail LAN routing even when Windows can reach the device.
+- Windows OpenSSH password auth can be automated with `SSH_ASKPASS` plus `SSH_ASKPASS_REQUIRE=force`.
+- If direct host push works but untethered polling does not, check the host server before changing Kindle code. A dead `serve` process on `0.0.0.0:8765` is a host-serving blocker, not a Kindle render bug.
+- The host `serve` helper is `tools/kindle-host-serve.ps1`; use `-Action ensure`, `-Action status`, and `-Action stop`.
+- The Kindle boot hook installer is `tools/install-kindle-autostart.ps1`.
+- For this Kindle, the sane appliance profile is `USE_WIFI="true"` plus `USE_WIFI_SSHD_ONLY="true"` with `/mnt/us/usbnet/auto` present. Without SSHD-only mode, `auto` can make USB maintenance look broken.
 
-But:
+## What is still left
 
-- these updated Kindle-side scripts were **not** redeployed to the device after the latest edits
-- do not assume the running device matches the current repo
+The transport/render path is now working. The next meaningful improvements are:
 
-## Most likely causes
+1. optional polish around wall-power behavior and long-running availability
+2. if needed, promote the Windows login Startup entry into a machine-wide service or scheduled task
+3. daily-news meme automation and cadence once appliance behavior is stable
 
-Treat these as hypotheses, not facts:
+## Current blocker
 
-1. The Kindle is still running older `billboard/*.sh` files from before the latest hardening.
-2. The poller is fetching successfully but the on-device render step is failing or returning early.
-3. The poller was restarted from KUAL, but the screen state/UI interactions left the visible frame stale.
-4. The device `config.env` on the Kindle has older values than the repo expects.
-
-## Fastest path to finish
-
-Do not start with Tavily or news content. First close the transport/render gap.
-
-### Step 1: get one-time device access again
-
-Preferred path:
-
-- have the user reconnect the Kindle in USBNetwork mode one more time
-- use the existing deploy helper or direct USB shell access
-- redeploy the current `billboard/` and `kual/` files from the repo
-
-Avoid telling the user USB networking is the runtime model. It is only the maintenance path.
-
-### Step 2: verify directly on-device
-
-Once shell access exists, run:
-
-```sh
-/mnt/us/billboard/status.sh
-tail -n 50 /mnt/us/billboard/logs/poller.log
-/mnt/us/billboard/show-url.sh http://192.168.50.131:8765/current.png
-```
-
-Need to learn:
-
-- whether `show-url.sh` still repaints immediately
-- whether poller log shows fetch-only success or render failures
-- whether `config.env` matches the expected URL and interval
-
-### Step 3: only then restore unattended mode
-
-After direct render works again:
-
-- start the poller
-- publish one clearly new card
-- confirm the screen changes
-
-### Step 4: only after stable repaint, add appliance behavior
-
-The user wants this to behave like a device, not an app they manually reopen.
-
-After reliable repaint is proven:
-
-- add a boot-time launcher path
-- likely an Upstart job or equivalent startup hook modeled after:
-  - `vendor/Kindle-Weather-Dashboard/Kindle/etc/upstart/startup.conf`
-
-Do **not** enable boot-time auto-start until the current poller/render path is solid.
-
-## Operational notes for the next agent
-
-- The Kindle taking over the screen while the poller is running is expected behavior.
-- A hard reboot returned the device to normal Kindle UI.
-- The host server is already running; do not waste time rebuilding that.
-- The current public repo exists at:
-  - `https://github.com/StoneHub/kindle-reclaim`
+- No transport or auth blocker remains.
+- The Kindle poller auto-starts on reboot now, and the host `serve` loop is covered at Windows login by the Startup entry.
+- Remaining gap only if the host must serve before any user login; that would need a service or scheduled-task version of the helper.
 
 ## Suggested next message to the user
 
 Use something this direct:
 
-1. explain that Wi-Fi fetch is proven but repaint is not
-2. say the shortest path is one more USBNetwork maintenance pass to redeploy the updated scripts and inspect `poller.log`
-3. promise that after that, the focus is boot-time appliance behavior and real Wi-Fi updates, not KUAL babysitting
+1. say that direct render, untethered Wi-Fi polling, and reboot-time poller auto-start are all working
+2. say the remaining optional improvement is making host serving start before Windows login, not more Kindle debugging
+3. note that wall power is fine, the current config polls every 60 seconds without intentional suspend

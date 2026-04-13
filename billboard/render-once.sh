@@ -8,4 +8,6 @@ EXAMPLE_CONFIG="$SCRIPT_DIR/config.env.example"
 [ -f "$CONFIG_FILE" ] || cp "$EXAMPLE_CONFIG" "$CONFIG_FILE"
 . "$CONFIG_FILE"
 
-exec env BILLBOARD_URL="${BILLBOARD_URL:-}" "$SCRIPT_DIR/show-url.sh"
+# Manual render should always redraw the current image, even when the fetched
+# file bytes match the cached copy from the poll loop.
+exec env BILLBOARD_URL="${BILLBOARD_URL:-}" RENDER_ON_CHANGE=0 /bin/sh "$SCRIPT_DIR/show-url.sh"
