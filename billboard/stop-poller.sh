@@ -1,33 +1,10 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.env}"
-EXAMPLE_CONFIG="$SCRIPT_DIR/config.env.example"
+. "$(CDPATH= cd -- "$(dirname "$0")" && pwd)/common.sh"
 
-[ -f "$CONFIG_FILE" ] || cp "$EXAMPLE_CONFIG" "$CONFIG_FILE"
-. "$CONFIG_FILE"
-
-mkdir -p "$STATE_DIR" "$LOG_DIR"
+ensure_runtime_dirs
 touch "$STOP_FLAG"
-
-is_pid_running() {
-  pid="${1:-}"
-  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
-}
-
-is_poller_pid() {
-  pid="${1:-}"
-  [ -n "$pid" ] || return 1
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  cmdline="$(tr '\000' ' ' </proc/"$pid"/cmdline 2>/dev/null || true)"
-  case "$cmdline" in
-    *"/billboard/poll-url.sh"*|*"poll-url.sh"*)
-      return 0
-      ;;
-  esac
-  return 1
-}
 
 pid=""
 [ -f "$PID_FILE" ] && pid="$(cat "$PID_FILE" 2>/dev/null || true)"

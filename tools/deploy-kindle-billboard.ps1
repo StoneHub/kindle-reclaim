@@ -5,8 +5,15 @@ param(
     [string]$HostUsbIp = "192.168.15.201",
     [string]$Workspace = "C:\Users\monro\Codex\Kindle reclaim",
     [string]$BillboardUrl = "",
-    [int]$IntervalSeconds = 60,
-    [int]$UseSuspend = 0,
+    [string]$PlaylistUrl = "",
+    [string]$DaylightUrl = "",
+    [int]$ChargingIntervalSeconds = 3600,
+    [int]$BatteryIntervalSeconds = 43200,
+    [int]$DayStartHour = 7,
+    [int]$DayStartMinute = 0,
+    [int]$DayEndHour = 21,
+    [int]$DayEndMinute = 0,
+    [int]$UseSuspend = 1,
     [int]$FetchTimeoutSeconds = 30,
     [int]$FetchRetries = 2,
     [int]$RenderOnChange = 1,
@@ -60,6 +67,14 @@ function Get-DefaultSshKeyPath {
 if (-not $BillboardUrl) {
     $LanIp = Get-LanIPv4
     $BillboardUrl = "http://${LanIp}:8765/current.png"
+}
+
+if (-not $PlaylistUrl) {
+    $PlaylistUrl = $BillboardUrl -replace '/current\.png$', '/playlist.txt'
+}
+
+if (-not $DaylightUrl) {
+    $DaylightUrl = $BillboardUrl -replace '/current\.png$', '/daylight.env'
 }
 
 $envPassword = [Environment]::GetEnvironmentVariable("KINDLE_SSH_PASSWORD")
@@ -133,7 +148,14 @@ chmod +x /mnt/us/billboard/*.sh /mnt/us/extensions/kindle-billboard/bin/*.sh
 mkdir -p /mnt/us/billboard/state /mnt/us/billboard/logs
 cat >/mnt/us/billboard/config.env <<EOF
 : "`${BILLBOARD_URL:=${BillboardUrl}}"
-: "`${INTERVAL_SECONDS:=${IntervalSeconds}}"
+: "`${PLAYLIST_URL:=${PlaylistUrl}}"
+: "`${DAYLIGHT_URL:=${DaylightUrl}}"
+: "`${CHARGING_INTERVAL_SECONDS:=${ChargingIntervalSeconds}}"
+: "`${BATTERY_INTERVAL_SECONDS:=${BatteryIntervalSeconds}}"
+: "`${DAY_START_HOUR:=${DayStartHour}}"
+: "`${DAY_START_MINUTE:=${DayStartMinute}}"
+: "`${DAY_END_HOUR:=${DayEndHour}}"
+: "`${DAY_END_MINUTE:=${DayEndMinute}}"
 : "`${USE_SUSPEND:=${UseSuspend}}"
 : "`${FETCH_TIMEOUT_SECONDS:=${FetchTimeoutSeconds}}"
 : "`${FETCH_RETRIES:=${FetchRetries}}"
@@ -146,6 +168,12 @@ cat >/mnt/us/billboard/config.env <<EOF
 : "`${LOG_FILE:=`$LOG_DIR/poller.log}"
 : "`${LAST_RESULT_FILE:=`$STATE_DIR/last_result}"
 : "`${LAST_SUCCESS_FILE:=`$STATE_DIR/last_success}"
+: "`${DAYLIGHT_CACHE_FILE:=`$STATE_DIR/daylight.env}"
+: "`${PLAYLIST_CACHE_DIR:=`$STATE_DIR/playlist-cache}"
+: "`${PLAYLIST_ENTRIES_FILE:=`$STATE_DIR/playlist.entries}"
+: "`${PLAYLIST_INDEX_FILE:=`$STATE_DIR/playlist.index}"
+: "`${PLAYLIST_COUNT_FILE:=`$STATE_DIR/playlist.count}"
+: "`${PLAYLIST_AUTOROTATE_FILE:=`$STATE_DIR/playlist.autorotate}"
 EOF
 if [ "${startPollerFlag}" = "1" ]; then
   /mnt/us/billboard/stop-poller.sh >/dev/null 2>&1 || true

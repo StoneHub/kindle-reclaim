@@ -14,14 +14,16 @@ This repo contains:
 The Kindle acts as a pull-based e-ink client:
 
 1. a host publishes `current.png`
-2. the Kindle poller fetches it over Wi-Fi
-3. the Kindle renders it with `fbink` or `eips`
-4. the device refreshes on its poll interval; suspend between polls is optional
+2. the host can also publish `playlist.txt` plus multiple slide images
+3. the Kindle poller fetches over Wi-Fi
+4. the Kindle renders it with `fbink` or `eips`
+5. the device refreshes on an adaptive poll schedule; suspend between polls is optional
 
 The host can publish:
 
 - local images
 - image URLs
+- multi-image playlists
 - generated text cards
 - Tavily-backed current-news meme plans for an external agent
 
@@ -69,6 +71,18 @@ Publish an image:
 python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py publish-file .\path\to\image.png
 ```
 
+Publish a rotating playlist:
+
+```powershell
+python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py publish-playlist .\slide1.png .\slide2.png .\slide3.png
+```
+
+Image publishing commands require Pillow on the host:
+
+```powershell
+pip install pillow
+```
+
 Serve the publish directory:
 
 ```powershell
@@ -93,6 +107,20 @@ Check status:
 
 ```powershell
 python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py status
+```
+
+Refresh the daylight schedule file that the Kindle uses for daytime-only polling:
+
+```powershell
+python .\skills\kindle-billboard\scripts\publish_kindle_billboard.py refresh-daylight
+```
+
+Optional host env vars for real sunrise/sunset instead of fixed day hours:
+
+```powershell
+$env:KINDLE_BILLBOARD_LATITUDE="40.7128"
+$env:KINDLE_BILLBOARD_LONGITUDE="-74.0060"
+$env:KINDLE_BILLBOARD_TIMEZONE="America/New_York"
 ```
 
 Push the current published image directly to the Kindle over SSH and render it immediately:
@@ -152,6 +180,9 @@ On the Kindle, use KUAL:
 - `Start Poller`
 - `Render Current Once`
 - `Restart Poller`
+- `Next Image`
+- `Previous Image`
+- `Toggle Autorotate`
 - `Stop Poller`
 
 Or run directly:
@@ -167,8 +198,10 @@ Current deploy helper behavior:
 - detects the active LAN IP if `-BillboardUrl` is not supplied
 - rewrites `/mnt/us/billboard/config.env`
 - can start the poller immediately with `-StartPoller`
-- keeps render-only-on-change enabled by default to avoid needless refreshes
-- defaults to a wall-power profile: `INTERVAL_SECONDS=60`, `USE_SUSPEND=0`
+- keeps render-only-on-change enabled by default for the single-image path
+- writes `PLAYLIST_URL` and `DAYLIGHT_URL` alongside `BILLBOARD_URL`
+- defaults to adaptive polling: `CHARGING_INTERVAL_SECONDS=3600`, `BATTERY_INTERVAL_SECONDS=43200`, `USE_SUSPEND=1`
+- uses host-generated `daylight.env` when available and falls back to fixed day hours when it is not
 
 If you use plain USB mass storage instead of USBNetwork for maintenance:
 
@@ -196,6 +229,7 @@ Host-driven push has a hard transport limit:
 - Stay on Amazon OS; do not replace the OS
 - Prefer Wi-Fi pull over browser kiosk behavior
 - Use grayscale `600x800` raster images as the device contract
+- Keep `current.png` as the fallback single-image slot even when playlist mode is enabled
 - Use plain HTTP on trusted LAN by default because old Kindle TLS is weak
 - For current-news humor, use Tavily to select the story, then have an external agent create an original meme image or joke card
 
@@ -228,10 +262,12 @@ Safest content path:
 The project is considered working when:
 
 1. the host updates `current.png`
-2. the Kindle fetches `GET /current.png` over Wi-Fi
+2. the Kindle fetches `GET /current.png` or `GET /playlist.txt` over Wi-Fi
 3. the new image appears on-screen
 4. the poll loop can be started and stopped safely
-5. a daily-news plan can be generated from Tavily and handed to an external agent without manual lookup
+5. playlist navigation works from KUAL
+6. the device uses the charging vs battery schedule during daytime hours
+7. a daily-news plan can be generated from Tavily and handed to an external agent without manual lookup
 
 Current verified status on `2026-04-12`:
 

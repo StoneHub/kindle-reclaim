@@ -35,8 +35,38 @@
           "internal": "status Restarting Kindle billboard poller"
         },
         {
-          "name": "Stop Poller",
+          "name": "Next Image",
           "priority": 4,
+          "action": "/bin/sh",
+          "params": "/mnt/us/extensions/kindle-billboard/bin/next.sh",
+          "exitmenu": false,
+          "refresh": false,
+          "status": false,
+          "internal": "status Rendering next billboard image"
+        },
+        {
+          "name": "Previous Image",
+          "priority": 5,
+          "action": "/bin/sh",
+          "params": "/mnt/us/extensions/kindle-billboard/bin/previous.sh",
+          "exitmenu": false,
+          "refresh": false,
+          "status": false,
+          "internal": "status Rendering previous billboard image"
+        },
+        {
+          "name": "Toggle Autorotate",
+          "priority": 6,
+          "action": "/bin/sh",
+          "params": "/mnt/us/extensions/kindle-billboard/bin/toggle-autorotate.sh",
+          "exitmenu": false,
+          "refresh": false,
+          "status": false,
+          "internal": "status Toggling billboard autorotate"
+        },
+        {
+          "name": "Stop Poller",
+          "priority": 7,
           "action": "/bin/sh",
           "params": "/mnt/us/extensions/kindle-billboard/bin/stop.sh",
           "exitmenu": false,

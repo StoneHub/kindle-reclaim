@@ -58,6 +58,18 @@ Serve the published directory over local HTTP:
 python scripts/publish_kindle_billboard.py serve
 ```
 
+Publish a rotating playlist:
+
+```bash
+python scripts/publish_kindle_billboard.py publish-playlist <path-or-url> <path-or-url> <path-or-url>
+```
+
+Refresh the host-generated daylight window file:
+
+```bash
+python scripts/publish_kindle_billboard.py refresh-daylight
+```
+
 Ensure the Windows host HTTP loop is running in the background:
 
 ```powershell
@@ -78,7 +90,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\install-kindle-autostart.ps1
 
 ## Operating Rules
 
-- Prefer overwriting the host-side `current.png` over trying to drive the Kindle UI.
+- Prefer overwriting the host-side `current.png` or `playlist.txt` on the host over trying to drive the Kindle UI.
 - Keep output `600x800`; let the script do the final grayscale fit.
 - Treat PDF as a host-side rasterization problem. If the host cannot rasterize the PDF, report the missing renderer instead of bluffing.
 - If the Kindle is mounted as USB mass storage on Windows, compare the deployed `/mnt/us/billboard` and `/mnt/us/extensions/kindle-billboard` files against the repo before assuming Wi-Fi is broken.
@@ -111,7 +123,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\install-kindle-autostart.ps1
 - If the user asks for a web dashboard or PDF view, prefer server-side render to PNG rather than browser-kiosk behavior on the Kindle.
 - If the user asks whether updates work while unplugged: yes when the Kindle is charged, on Wi-Fi, and already running `/mnt/us/billboard/poll-url.sh`.
 - If the user asks whether updates work after a reboot: the Kindle-side poller auto-start hook is now installed and was verified on a real reboot. The host-side `serve` loop still needs to be running.
-- If the user asks whether the Kindle can stay available while plugged into power: yes on wall power or a power bank. The default repo profile is `INTERVAL_SECONDS=60` and `USE_SUSPEND=0`, and the poller now auto-starts on reboot on this device.
+- If the user asks whether the Kindle can stay available while plugged into power: yes on wall power or a power bank. The default repo profile is daytime `CHARGING_INTERVAL_SECONDS=3600`, battery `BATTERY_INTERVAL_SECONDS=43200`, and `USE_SUSPEND=1`, and the poller now auto-starts on reboot on this device.
+- If the user asks for sunrise/sunset behavior, prefer the host-generated `daylight.env` file and document `KINDLE_BILLBOARD_LATITUDE`, `KINDLE_BILLBOARD_LONGITUDE`, and `KINDLE_BILLBOARD_TIMEZONE` on the host.
 - If the user asks to make the password be `kindle`, the smooth path is: mount USB storage, run `tools/install-kindle-ssh-key.ps1`, eject, then run `tools/set-kindle-root-password.ps1 -NewPassword kindle`.
 
 ## References

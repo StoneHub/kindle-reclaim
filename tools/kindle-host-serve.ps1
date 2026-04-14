@@ -34,8 +34,26 @@ $pidFile = Join-Path $artifactsDir "wifi-http.pid"
 
 New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 
+function Update-DaylightFile {
+    param([string]$WorkspacePath)
+
+    $daylightArgs = @(
+        ".\skills\kindle-billboard\scripts\publish_kindle_billboard.py",
+        "refresh-daylight"
+    )
+
+    Push-Location $WorkspacePath
+    try {
+        $null = & python @daylightArgs 2>$null
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 switch ($Action) {
     "status" {
+        Update-DaylightFile -WorkspacePath $workspaceResolved
         $process = Get-ListenerProcess -LocalPort $Port
         if (-not $process) {
             Write-Output "state=stopped port=$Port"
@@ -70,6 +88,7 @@ switch ($Action) {
     }
 
     "ensure" {
+        Update-DaylightFile -WorkspacePath $workspaceResolved
         $process = Get-ListenerProcess -LocalPort $Port
         if ($process) {
             [System.IO.File]::WriteAllText($pidFile, "$($process.Id)`n", [System.Text.Encoding]::ASCII)

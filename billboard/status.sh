@@ -1,25 +1,7 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.env}"
-EXAMPLE_CONFIG="$SCRIPT_DIR/config.env.example"
-
-[ -f "$CONFIG_FILE" ] || cp "$EXAMPLE_CONFIG" "$CONFIG_FILE"
-. "$CONFIG_FILE"
-
-is_poller_pid() {
-  pid="${1:-}"
-  [ -n "$pid" ] || return 1
-  [ -r "/proc/$pid/cmdline" ] || return 1
-  cmdline="$(tr '\000' ' ' </proc/"$pid"/cmdline 2>/dev/null || true)"
-  case "$cmdline" in
-    *"/billboard/poll-url.sh"*|*"poll-url.sh"*)
-      return 0
-      ;;
-  esac
-  return 1
-}
+. "$(CDPATH= cd -- "$(dirname "$0")" && pwd)/common.sh"
 
 pid=""
 [ -f "$PID_FILE" ] && pid="$(cat "$PID_FILE" 2>/dev/null || true)"
@@ -35,7 +17,15 @@ fi
 echo "state=$state"
 echo "pid=${pid:-}"
 echo "url=${BILLBOARD_URL:-}"
-echo "interval=${INTERVAL_SECONDS:-}"
+echo "playlist_url=${PLAYLIST_URL:-}"
+echo "charging_interval=${CHARGING_INTERVAL_SECONDS:-}"
+echo "battery_interval=${BATTERY_INTERVAL_SECONDS:-}"
+echo "power_profile=$(detect_power_profile)"
+echo "day_window=${DAY_START_HOUR:-}:${DAY_START_MINUTE:-}-${DAY_END_HOUR:-}:${DAY_END_MINUTE:-}"
+echo "daylight_url=${DAYLIGHT_URL:-}"
+echo "playlist_count=$(get_playlist_count)"
+echo "playlist_index=$(get_playlist_index)"
+echo "playlist_autorotate=$(get_playlist_autorotate)"
 echo "suspend=${USE_SUSPEND:-}"
 echo "log=${LOG_FILE:-}"
 if [ -f "${LAST_RESULT_FILE:-}" ]; then

@@ -3,6 +3,7 @@
 Minimal Kindle-side client for a jailbroken Kindle that:
 
 - fetches a raster image from a URL
+- can fetch a line-oriented playlist manifest and cache multiple images
 - renders it full-screen with `fbink` or `eips`
 - optionally loops with suspend/wake between refreshes
 - skips refreshes when the fetched image has not changed
@@ -27,15 +28,20 @@ Live proof completed:
 
 - `show-url.sh`: one-shot fetch + render
 - `show-file.sh`: one-shot local-file render, for SSH-driven host push
-- `poll-url.sh`: repeated refresh loop, with RTC suspend when available
+- `poll-url.sh`: repeated refresh loop, with adaptive intervals, daytime gating, and RTC suspend when available
 - `start-poller.sh`: safe background launcher with PID/log handling
 - `stop-poller.sh`: clean stop helper
 - `restart-poller.sh`: restart helper
 - `render-once.sh`: render current URL once without starting the loop
+- `sync-playlist.sh`: fetch the current playlist manifest and cache the active slides
+- `render-active.sh`: render the current playlist entry
+- `next-image.sh` / `previous-image.sh`: manual playlist navigation
+- `toggle-autorotate.sh`: enable or disable playlist autorotation
 - `status.sh`: print local runtime state
 - `autostart.sh`: boot-time hook that starts the poller after framework startup
 - `kindle-billboard-upstart.conf`: Kindle upstart job template for boot-time poller start
 - `config.env.example`: default on-device config template
+- `common.sh`: shared runtime helpers for config, power-state checks, and day-window logic
 
 ## Runtime Behavior
 
@@ -44,10 +50,12 @@ The hardened default behavior is:
 - fetch timeout: `30s`
 - fetch retries: `2`
 - render only on change: enabled
-- poll interval: `60s`
-- suspend between polls: disabled
+- charging interval: `3600s`
+- battery interval: `43200s`
+- suspend between polls: enabled
+- daylight window file: `daylight.env` when available, fixed day hours otherwise
 
-This keeps the wall-power appliance responsive while still avoiding unnecessary e-ink refreshes and hanging HTTP requests.
+This keeps the Kindle responsive on power while backing off aggressively on battery and skipping overnight fetches.
 
 Additional hardening verified in this workspace:
 
@@ -100,6 +108,9 @@ Menu actions:
 - `Start Poller`
 - `Render Current Once`
 - `Restart Poller`
+- `Next Image`
+- `Previous Image`
+- `Toggle Autorotate`
 - `Stop Poller`
 
 `Render Current Once` is the shortest on-device smoke test. It should force a redraw of the current host image even when the cached image bytes have not changed. If it fails, fix the local runtime before debugging Wi-Fi polling.
@@ -117,7 +128,7 @@ This copies:
 - `billboard/*` -> `/mnt/us/billboard`
 - `kual/kindle-billboard/*` -> `/mnt/us/extensions/kindle-billboard`
 
-It also rewrites `/mnt/us/billboard/config.env` to the active host URL and can start the poller immediately over USB networking.
+It also rewrites `/mnt/us/billboard/config.env` to the active host URLs, adaptive intervals, and day-window settings, and can start the poller immediately over USB networking.
 
 For the host HTTP loop on Windows, use:
 
@@ -164,7 +175,7 @@ For your use case:
 3. use `start-poller.sh` or the KUAL launcher for day-to-day operation
 4. if you want a more elaborate scheduler/HTTPS handling, adapt `kindle-dash` rather than reflashing the OS
 
-On wall power, the Kindle can stay available as a responsive appliance with the default `60s` poll interval and `USE_SUSPEND=0`. Boot-time poller auto-start is now installed and reboot-tested on this device. The host-side `serve` process still needs to be running, and the repo now includes a Windows helper plus a user Startup entry for that.
+On wall power, the Kindle now defaults to a daytime `3600s` cadence. On battery, it backs off to a daytime `43200s` cadence. Boot-time poller auto-start is still installed and reboot-tested on this device. The host-side `serve` process still needs to be running, and the repo now includes a Windows helper plus a user Startup entry for that.
 
 For a wired host-push path from Windows, use [..\tools\push-current-kindle.ps1](..\tools\push-current-kindle.ps1). It copies the current published image to `/mnt/us/billboard/push/current.png` over SSH and runs `show-file.sh` immediately.
 

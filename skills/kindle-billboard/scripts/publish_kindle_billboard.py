@@ -10,20 +10,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import socket
 import subprocess
 import sys
 import textwrap
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from zoneinfo import ZoneInfo
+
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    Image = ImageDraw = ImageFont = ImageOps = None
 
 WIDTH = 600
 HEIGHT = 800
@@ -34,6 +40,11 @@ DEFAULT_PUBLISH_DIR = ROOT / "artifacts" / "publish"
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def require_pillow() -> None:
+    if Image is None or ImageDraw is None or ImageFont is None or ImageOps is None:
+        raise RuntimeError("Pillow is required for image publishing commands. Install it with 'pip install pillow'.")
 
 
 def detect_lan_ip() -> str | None:
@@ -51,9 +62,15 @@ def detect_lan_ip() -> str | None:
 def ensure_publish_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     (path / "history").mkdir(parents=True, exist_ok=True)
+    (path / "slides").mkdir(parents=True, exist_ok=True)
+
+
+def write_text_file(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8", newline="\n")
 
 
 def fit_image(img: Image.Image) -> Image.Image:
+    require_pillow()
     gray = img.convert("L")
     fitted = ImageOps.contain(gray, (WIDTH, HEIGHT))
     canvas = Image.new("L", (WIDTH, HEIGHT), 255)
@@ -75,11 +92,151 @@ def save_current(img: Image.Image, publish_dir: Path, metadata: dict[str, Any]) 
     return current_path
 
 
+def write_playlist_manifest(
+    publish_dir: Path,
+    entries: list[dict[str, Any]],
+    *,
+    metadata: dict[str, Any],
+) -> None:
+    ensure_publish_dir(publish_dir)
+    playlist_txt = publish_dir / "playlist.txt"
+    playlist_json = publish_dir / "playlist.json"
+    lines = [str(entry["path"]) for entry in entries]
+    write_text_file(playlist_txt, "\n".join(lines) + ("\n" if lines else ""))
+    playlist_json.write_text(
+        json.dumps(
+            {
+                "published_at": utc_now(),
+                "entries": entries,
+                "metadata": metadata,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_single_item_playlist(publish_dir: Path, metadata: dict[str, Any]) -> None:
+    write_playlist_manifest(
+        publish_dir,
+        [{"path": "current.png", "kind": metadata.get("kind", "image")}],
+        metadata=metadata,
+    )
+
+
+def normalize_hour_minute(value: datetime) -> tuple[int, int]:
+    return value.hour, value.minute
+
+
+def normalize_degrees(value: float) -> float:
+    while value < 0:
+        value += 360
+    while value >= 360:
+        value -= 360
+    return value
+
+
+def normalize_hours(value: float) -> float:
+    while value < 0:
+        value += 24
+    while value >= 24:
+        value -= 24
+    return value
+
+
+def calculate_sun_event_utc(day: date, latitude: float, longitude: float, *, sunrise: bool) -> datetime | None:
+    day_of_year = day.timetuple().tm_yday
+    lng_hour = longitude / 15.0
+    approx_time = day_of_year + ((6 - lng_hour) / 24.0 if sunrise else (18 - lng_hour) / 24.0)
+
+    mean_anomaly = (0.9856 * approx_time) - 3.289
+    true_longitude = mean_anomaly + (1.916 * math.sin(math.radians(mean_anomaly)))
+    true_longitude += 0.020 * math.sin(math.radians(2 * mean_anomaly)) + 282.634
+    true_longitude = normalize_degrees(true_longitude)
+
+    right_ascension = math.degrees(math.atan(0.91764 * math.tan(math.radians(true_longitude))))
+    right_ascension = normalize_degrees(right_ascension)
+    true_longitude_quadrant = math.floor(true_longitude / 90) * 90
+    right_ascension_quadrant = math.floor(right_ascension / 90) * 90
+    right_ascension = (right_ascension + (true_longitude_quadrant - right_ascension_quadrant)) / 15.0
+
+    sin_declination = 0.39782 * math.sin(math.radians(true_longitude))
+    cos_declination = math.cos(math.asin(sin_declination))
+    cos_hour_angle = (
+        math.cos(math.radians(90.833))
+        - (sin_declination * math.sin(math.radians(latitude)))
+    ) / (cos_declination * math.cos(math.radians(latitude)))
+
+    if cos_hour_angle > 1 or cos_hour_angle < -1:
+        return None
+
+    hour_angle = 360 - math.degrees(math.acos(cos_hour_angle)) if sunrise else math.degrees(math.acos(cos_hour_angle))
+    hour_angle /= 15.0
+
+    local_mean_time = hour_angle + right_ascension - (0.06571 * approx_time) - 6.622
+    universal_time = normalize_hours(local_mean_time - lng_hour)
+    return datetime.combine(day, time(0, 0), tzinfo=timezone.utc) + timedelta(hours=universal_time)
+
+
+def write_daylight_env(
+    publish_dir: Path,
+    *,
+    fixed_start_hour: int = 7,
+    fixed_end_hour: int = 21,
+) -> Path:
+    ensure_publish_dir(publish_dir)
+    output = publish_dir / "daylight.env"
+
+    latitude_text = os.environ.get("KINDLE_BILLBOARD_LATITUDE", "").strip()
+    longitude_text = os.environ.get("KINDLE_BILLBOARD_LONGITUDE", "").strip()
+    timezone_name = os.environ.get("KINDLE_BILLBOARD_TIMEZONE", "").strip()
+
+    start_hour = fixed_start_hour
+    start_minute = 0
+    end_hour = fixed_end_hour
+    end_minute = 0
+    source = "fixed"
+
+    if latitude_text and longitude_text:
+        try:
+            latitude = float(latitude_text)
+            longitude = float(longitude_text)
+            zone = ZoneInfo(timezone_name) if timezone_name else datetime.now().astimezone().tzinfo
+            if zone is not None:
+                today = datetime.now(zone).date()
+                sunrise_utc = calculate_sun_event_utc(today, latitude, longitude, sunrise=True)
+                sunset_utc = calculate_sun_event_utc(today, latitude, longitude, sunrise=False)
+                if sunrise_utc and sunset_utc:
+                    sunrise_local = sunrise_utc.astimezone(zone)
+                    sunset_local = sunset_utc.astimezone(zone)
+                    start_hour, start_minute = normalize_hour_minute(sunrise_local)
+                    end_hour, end_minute = normalize_hour_minute(sunset_local)
+                    source = "sunrise_sunset"
+        except Exception:
+            source = "fixed"
+
+    content = "\n".join(
+        [
+            f"DATE={datetime.now().date().isoformat()}",
+            f"DAY_START_HOUR={start_hour}",
+            f"DAY_START_MINUTE={start_minute}",
+            f"DAY_END_HOUR={end_hour}",
+            f"DAY_END_MINUTE={end_minute}",
+            f"DAY_WINDOW_SOURCE={source}",
+            "",
+        ]
+    )
+    write_text_file(output, content)
+    return output
+
+
 def load_image_from_bytes(raw: bytes) -> Image.Image:
+    require_pillow()
     return Image.open(BytesIO(raw))
 
 
 def open_local_or_remote(source: str) -> tuple[Image.Image, dict[str, Any]]:
+    require_pillow()
     parsed = urlparse(source)
     if parsed.scheme in {"http", "https"}:
         with urlopen(source) as response:  # nosec - caller explicitly requested the URL
@@ -97,6 +254,7 @@ def open_local_or_remote(source: str) -> tuple[Image.Image, dict[str, Any]]:
 
 
 def default_font(size: int) -> ImageFont.ImageFont:
+    require_pillow()
     for font_name in ("DejaVuSans.ttf", "Arial.ttf", "arial.ttf"):
         try:
             return ImageFont.truetype(font_name, size=size)
@@ -143,6 +301,7 @@ def draw_wrapped(
 
 
 def render_text_card(title: str, body: str, footer: str) -> Image.Image:
+    require_pillow()
     img = Image.new("L", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(img)
     title_font = default_font(32)
@@ -176,6 +335,7 @@ def render_news_meme_card(
     image: Image.Image | None,
     footer: str,
 ) -> Image.Image:
+    require_pillow()
     img = Image.new("L", (WIDTH, HEIGHT), 255)
     draw = ImageDraw.Draw(img)
     label_font = default_font(18)
@@ -229,6 +389,7 @@ def render_news_meme_card(
 def cmd_status(args: argparse.Namespace) -> int:
     publish_dir = Path(args.publish_dir).resolve()
     guessed_ip = args.host_ip or detect_lan_ip()
+    write_daylight_env(publish_dir)
     current_path = publish_dir / "current.png"
     current_meta = publish_dir / "current.json"
     payload = {
@@ -238,6 +399,12 @@ def cmd_status(args: argparse.Namespace) -> int:
         "metadata_path": str(current_meta),
         "guessed_current_url": (
             f"http://{guessed_ip}:{args.port}/current.png" if guessed_ip else None
+        ),
+        "guessed_playlist_url": (
+            f"http://{guessed_ip}:{args.port}/playlist.txt" if guessed_ip else None
+        ),
+        "guessed_daylight_url": (
+            f"http://{guessed_ip}:{args.port}/daylight.env" if guessed_ip else None
         ),
         "notes": [
             "Untethered updates require the Kindle poll loop to already be running.",
@@ -260,6 +427,8 @@ def cmd_publish_file(args: argparse.Namespace) -> int:
         **source_meta,
     }
     current = save_current(fitted, publish_dir, metadata)
+    write_single_item_playlist(publish_dir, metadata)
+    write_daylight_env(publish_dir)
     print(current)
     return 0
 
@@ -275,6 +444,8 @@ def cmd_publish_text(args: argparse.Namespace) -> int:
         "footer": args.footer,
     }
     current = save_current(img, publish_dir, metadata)
+    write_single_item_playlist(publish_dir, metadata)
+    write_daylight_env(publish_dir)
     print(current)
     return 0
 
@@ -309,13 +480,65 @@ def cmd_publish_news_meme(args: argparse.Namespace) -> int:
     if image_meta:
         metadata["image"] = image_meta
     current = save_current(img, publish_dir, metadata)
+    write_single_item_playlist(publish_dir, metadata)
+    write_daylight_env(publish_dir)
     print(current)
+    return 0
+
+
+def cmd_publish_playlist(args: argparse.Namespace) -> int:
+    publish_dir = Path(args.publish_dir).resolve()
+    ensure_publish_dir(publish_dir)
+    slides_dir = publish_dir / "slides"
+    for old_slide in slides_dir.glob("*.png"):
+        old_slide.unlink()
+
+    entries: list[dict[str, Any]] = []
+    for index, source in enumerate(args.sources, start=1):
+        img, source_meta = open_local_or_remote(source)
+        fitted = fit_image(img)
+        relative_path = f"slides/{index:03d}.png"
+        output_path = publish_dir / relative_path
+        fitted.save(output_path, format="PNG", optimize=True)
+        entries.append(
+            {
+                "path": relative_path,
+                "index": index - 1,
+                **source_meta,
+            }
+        )
+
+    if not entries:
+        raise RuntimeError("Playlist requires at least one image source.")
+
+    shutil.copy2(publish_dir / entries[0]["path"], publish_dir / "current.png")
+    metadata = {
+        "kind": "playlist",
+        "published_at": utc_now(),
+        "count": len(entries),
+        "note": args.note or "",
+    }
+    (publish_dir / "current.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    write_playlist_manifest(publish_dir, entries, metadata=metadata)
+    write_daylight_env(publish_dir)
+    print(publish_dir / "playlist.txt")
+    return 0
+
+
+def cmd_refresh_daylight(args: argparse.Namespace) -> int:
+    output = write_daylight_env(
+        Path(args.publish_dir).resolve(),
+        fixed_start_hour=args.day_start_hour,
+        fixed_end_hour=args.day_end_hour,
+    )
+    print(output)
     return 0
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
     publish_dir = Path(args.publish_dir).resolve()
     ensure_publish_dir(publish_dir)
+    write_daylight_env(publish_dir)
     os.chdir(publish_dir)
     cmd = [
         sys.executable,
@@ -350,6 +573,14 @@ def build_parser() -> argparse.ArgumentParser:
     publish_file.add_argument("source", help="Path or http(s) URL to an image file.")
     publish_file.add_argument("--note", default="", help="Optional note stored in metadata.")
     publish_file.set_defaults(func=cmd_publish_file)
+
+    publish_playlist = subparsers.add_parser(
+        "publish-playlist",
+        help="Publish multiple images as a rotating playlist and keep current.png as the first slide.",
+    )
+    publish_playlist.add_argument("sources", nargs="+", help="Paths or http(s) URLs to image files.")
+    publish_playlist.add_argument("--note", default="", help="Optional note stored in metadata.")
+    publish_playlist.set_defaults(func=cmd_publish_playlist)
 
     publish_text = subparsers.add_parser(
         "publish-text",
@@ -401,6 +632,14 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="0.0.0.0", help="Bind address.")
     serve.add_argument("--port", type=int, default=DEFAULT_PORT, help="Serving port.")
     serve.set_defaults(func=cmd_serve)
+
+    refresh_daylight = subparsers.add_parser(
+        "refresh-daylight",
+        help="Write daylight.env for the current day using configured coordinates or fixed hours.",
+    )
+    refresh_daylight.add_argument("--day-start-hour", type=int, default=7, help="Fallback daytime start hour.")
+    refresh_daylight.add_argument("--day-end-hour", type=int, default=21, help="Fallback daytime end hour.")
+    refresh_daylight.set_defaults(func=cmd_refresh_daylight)
 
     return parser
 
